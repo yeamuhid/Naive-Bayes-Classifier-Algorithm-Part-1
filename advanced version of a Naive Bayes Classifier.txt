@@ -1,0 +1,86 @@
+import numpy as np
+
+class NaiveBayesClassifier:
+    def __init__(self, model_type="gaussian"):
+        if model_type not in ["gaussian", "multinomial", "bernoulli"]:
+            raise ValueError("Model type must be 'gaussian', 'multinomial', or 'bernoulli'")
+        self.model_type = model_type
+        self.classes = None
+        self.class_prior = {}
+        self.parameters = {}
+
+    def fit(self, X, y):
+        self.classes = np.unique(y)
+        
+        if self.model_type == "gaussian":
+            self._fit_gaussian(X, y)
+        elif self.model_type == "multinomial":
+            self._fit_multinomial(X, y)
+        elif self.model_type == "bernoulli":
+            self._fit_bernoulli(X, y)
+
+    def _fit_gaussian(self, X, y):
+        for cls in self.classes:
+            X_cls = X[y == cls]
+            self.parameters[cls] = {
+                "mean": X_cls.mean(axis=0),
+                "var": X_cls.var(axis=0)
+            }
+            self.class_prior[cls] = X_cls.shape[0] / X.shape[0]
+
+    def _fit_multinomial(self, X, y):
+        # Calculate feature counts for each class
+        for cls in self.classes:
+            X_cls = X[y == cls]
+            self.parameters[cls] = {
+                "feature_count": X_cls.sum(axis=0),
+                "total_count": X_cls.sum()
+            }
+            self.class_prior[cls] = X_cls.shape[0] / X.shape[0]
+
+    def _fit_bernoulli(self, X, y):
+        # Binarize data (1 for presence, 0 for absence)
+        X = (X > 0).astype(int)
+        for cls in self.classes:
+            X_cls = X[y == cls]
+            self.parameters[cls] = {
+                "feature_prob": (X_cls.sum(axis=0) + 1) / (X_cls.shape[0] + 2)
+            }
+            self.class_prior[cls] = X_cls.shape[0] / X.shape[0]
+
+    def predict(self, X):
+        return [self._predict_single(x) for x in X]
+
+    def _predict_single(self, x):
+        posteriors = {}
+        
+        for cls in self.classes:
+            prior_log_prob = np.log(self.class_prior[cls])
+            
+            if self.model_type == "gaussian":
+                likelihood = np.sum(np.log(self._calculate_gaussian_likelihood(cls, x)))
+            elif self.model_type == "multinomial":
+                likelihood = np.sum(np.log(self._calculate_multinomial_likelihood(cls, x)))
+            elif self.model_type == "bernoulli":
+                likelihood = np.sum(np.log(self._calculate_bernoulli_likelihood(cls, x)))
+            
+            posteriors[cls] = prior_log_prob + likelihood
+        
+        return max(posteriors, key=posteriors.get)
+
+    def _calculate_gaussian_likelihood(self, cls, x):
+        mean = self.parameters[cls]["mean"]
+        var = self.parameters[cls]["var"]
+        numerator = np.exp(-0.5 * ((x - mean) ** 2) / var)
+        denominator = np.sqrt(2 * np.pi * var)
+        return numerator / denominator
+
+    def _calculate_multinomial_likelihood(self, cls, x):
+        feature_count = self.parameters[cls]["feature_count"]
+        total_count = self.parameters[cls]["total_count"]
+        likelihood = (x * np.log((feature_count + 1) / (total_count + len(feature_count))))
+        return likelihood
+
+    def _calculate_bernoulli_likelihood(self, cls, x):
+        feature_prob = self.parameters[cls]["feature_prob"]
+        return x * np.log(feature_prob) + (1 - x) * np.log(1 - feature_prob)
